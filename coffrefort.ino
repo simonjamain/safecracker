@@ -12,12 +12,16 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define PAUSE_BETWEEN_POSITIONS_MS 50
 // put your setup code here, to run once:
 #define MIN_DIGIT_VALUE 0
-#define MAX_DIGIT_VALUE 20
+#define MAX_DIGIT_VALUE 9
 
 #define STEPS_PER_SELECTOR_POSITION 100
 #define STEPS_PER_DIGIT_POSITION 100
 
 #define NB_DIGITS 4
+const int max_combinations = pow((MAX_DIGIT_VALUE - MIN_DIGIT_VALUE), NB_DIGITS + 1);
+int current_combination = 1;
+
+#define OPENING_SENSOR_PIN 7
 
 int digits[NB_DIGITS] = { 0, 0, 0, 0 };
 
@@ -39,7 +43,9 @@ volatile int digitMotorActualSteps = 0;
 
 void setup() {
   // initialize serial communication at 9600 bits per second:
-  Serial.begin(115200);
+  // Serial.begin(115200);
+
+  pinMode(OPENING_SENSOR_PIN, INPUT_PULLUP);
 
   pinMode(SELECTOR_MOTOR_SENSOR_PIN_INTERUPT, INPUT);
   pinMode(SELECTOR_MOTOR_SENSOR_PIN_FORWARD, INPUT);
@@ -86,6 +92,10 @@ void selectDigit(int digitToSelect) {
   selectedDigit = digitToSelect;
 }
 
+bool isOpened() {
+  return digitalRead(OPENING_SENSOR_PIN) == LOW;
+}
+
 void motorGotoPosition(int motorForwardPin, int motorReversePin, volatile int& actualSteps, int targetSteps) {
   int direction = getSign(targetSteps - actualSteps);
 
@@ -94,6 +104,10 @@ void motorGotoPosition(int motorForwardPin, int motorReversePin, volatile int& a
 
   turnMotor(motorForwardPin, motorReversePin, direction);
   while (actualSteps * direction <= targetSteps * direction) {
+    if (isOpened()) {
+      brakeMotor(motorForwardPin, motorReversePin);
+      return;
+      }
     // Serial.print("GotoPosition : ");
     // Serial.print(actualSteps * direction);
     // Serial.print(" < ");
@@ -141,11 +155,19 @@ void displayCurrenDigits(int* digits, int nbDigits) {
   for (int currentDigitIndex = 0; currentDigitIndex < nbDigits; currentDigitIndex++) {
     display.print(digits[currentDigitIndex]);
     if (currentDigitIndex < nbDigits - 1) {
-      display.setCursor(display.getCursorX()-2, 0);
+      display.setCursor(display.getCursorX() - 2, 0);
       display.print(".");
-      display.setCursor(display.getCursorX()-2, 0);
-      }
+      display.setCursor(display.getCursorX() - 2, 0);
+    }
   }
+
+  float progress = (float)current_combination / (float)max_combinations;
+  // Serial.println(progress);
+  // Serial.println(current_combination);
+  // Serial.println(max_combinations);
+  display.drawRect(0, display.height() / 2, display.width(), display.height() / 2, SSD1306_WHITE);
+  display.fillRect(0, display.height() / 2, ((float)display.width()) * progress, display.height() / 2, SSD1306_WHITE);
+  // current_combination
 
   display.display();
 }
@@ -153,12 +175,12 @@ void displayCurrenDigits(int* digits, int nbDigits) {
 void testPositions(int digitIndex, int* digitPositionsArray, int nbDigits) {
   int digitTarget = MIN_DIGIT_VALUE;
   while (digitTarget <= MAX_DIGIT_VALUE) {
+    if (isOpened()) { return; }    
+    changeDigitTo(digitIndex, digitTarget);
     if (digitIndex < nbDigits - 1) {
       testPositions(digitIndex + 1, digitPositionsArray, nbDigits);
     }
-    changeDigitTo(digitIndex, digitTarget);
-    Serial.print("digit ");
-    Serial.println(digitIndex);
+    current_combination++;
     displayCurrenDigits(digitPositionsArray, nbDigits);
     // printSerialCurrentDigits(digitPositionsArray, nbDigits);
     digitTarget = digitPositionsArray[digitIndex] + 1;
@@ -184,7 +206,7 @@ void updateDigitMotorSteps() {
 
 
 void loop() {
-  Serial.println("---DEBUT---");
+  // Serial.println("---DEBUT---");
   displayCurrenDigits(digits, NB_DIGITS);
   // ---test methode turnMotor
   // turnMotor(SELECTOR_MOTOR_PIN_FORWARD, SELECTOR_MOTOR_PIN_REVERSE, 1);
@@ -236,7 +258,7 @@ void loop() {
 
   testPositions(0, digits, NB_DIGITS);
 
-  Serial.println("---FIN---");
+  // Serial.println("---FIN---");
   switchOffMotor(SELECTOR_MOTOR_PIN_FORWARD, SELECTOR_MOTOR_PIN_REVERSE);
   switchOffMotor(DIGIT_MOTOR_PIN_FORWARD, DIGIT_MOTOR_PIN_REVERSE);
   while (true) {
